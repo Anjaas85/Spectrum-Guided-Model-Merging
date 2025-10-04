@@ -1,0 +1,17 @@
+models:
+  - model: textattack/bert-base-uncased-SST-2
+    layers: "0-11"
+  - model: textattack/bert-base-uncased-CoLA
+    layers: "0-11"
+
+merge_method: slerp
+base_model: textattack/bert-base-uncased-SST-2
+dtype: float32
+
+# SLERP interpolation factor (0.0 = first model, 1.0 = second model)
+parameters:
+  t: 0.5
+
+# output & tokenizer handling
+copy_tokenizer: true
+output_dir: experiments/merges/bert_sst2_cola_slerp_t0.5

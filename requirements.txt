@@ -1,0 +1,8 @@
+torch
+transformers
+datasets
+tqdm
+pyyaml
+mergekit
+accelerate
+huggingface_hub

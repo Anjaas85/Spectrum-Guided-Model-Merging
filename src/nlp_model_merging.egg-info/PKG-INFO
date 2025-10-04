@@ -1,0 +1,11 @@
+Metadata-Version: 2.1
+Name: nlp_model_merging
+Version: 0.1.0
+Requires-Dist: torch>=2.0
+Requires-Dist: transformers>=4.40
+Requires-Dist: datasets
+Requires-Dist: numpy
+Requires-Dist: tqdm
+Requires-Dist: pyyaml
+Requires-Dist: mergekit
+Requires-Dist: huggingface_hub

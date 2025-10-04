@@ -12,6 +12,8 @@ setup(
         "numpy",
         "tqdm",
         "pyyaml",
+        "mergekit",
+        "huggingface_hub",
     ],
     entry_points={
         'console_scripts': [

@@ -1,0 +1,2 @@
+[console_scripts]
+nlpmerge = src.main:main
