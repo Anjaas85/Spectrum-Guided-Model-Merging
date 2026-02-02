@@ -1,0 +1,56 @@
+merge_method: multislerp
+base_model: models/backbones/base
+dtype: float32
+
+parameters:
+  normalize_weights: true
+
+slices:
+  - sources:
+      - model: models/backbones/sst2
+        layer_range: [0, 8]
+        parameters:
+          weight: 1.0
+      
+      - model: models/backbones/ag-news
+        layer_range: [0, 8]
+        parameters:
+          weight: 1.0
+
+      - model: models/backbones/mnli
+        layer_range: [0, 8]
+        parameters:
+          weight: 1.0
+  
+  - sources:
+      - model: models/backbones/sst2
+        layer_range: [8, 11]
+        parameters:
+          weight: 1.0
+      
+      - model: models/backbones/ag-news
+        layer_range: [8, 11]
+        parameters:
+          weight: 1.0
+
+      - model: models/backbones/mnli
+        layer_range: [8, 11]
+        parameters:
+          weight: 1.0
+  - sources:
+      - model: models/backbones/sst2
+        layer_range: [11, 12]
+        parameters:
+          weight: 1.0
+      
+      - model: models/backbones/ag-news
+        layer_range: [11, 12]
+        parameters:
+          weight: 1.0
+
+      - model: models/backbones/mnli
+        layer_range: [11, 12]
+        parameters:
+          weight: 1.0
+          
+copy_tokenizer: true
