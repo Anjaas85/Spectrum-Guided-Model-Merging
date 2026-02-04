@@ -1,0 +1,96 @@
+merge_method: ties
+base_model: models/backbones/base
+dtype: float32
+
+parameters:
+  normalize: true
+  int8_mask: false
+  rescale: true  
+
+slices:
+  - sources:
+      - model: models/backbones/base
+        layer_range: [0, 1]
+        parameters:
+          weight: 0.00
+      - model: models/backbones/mnli
+        layer_range: [0, 1]
+        parameters:
+          density: 0.6153848029013714
+          weight: 0.7613816543340313
+
+      - model: models/backbones/ag-news
+        layer_range: [0, 1]
+        parameters:
+          density: 0.44013837025514146
+          weight: 0.4184824777141025
+
+      - model: models/backbones/sst2
+        layer_range: [0, 1]
+        parameters:
+          density: 0.16565191103634322
+          weight: 1.0
+
+  - sources:
+      - model: models/backbones/base
+        layer_range: [1, 2]
+        parameters:
+          weight: 1.00
+
+  - sources:
+      - model: models/backbones/base
+        layer_range: [2, 3]
+        parameters:
+          weight: 0.00
+      - model: models/backbones/mnli
+        layer_range: [2, 3]
+        parameters:
+          density: 0.6153848029013714
+          weight: 0.7613816543340313
+
+      - model: models/backbones/ag-news
+        layer_range: [2, 3]
+        parameters:
+          density: 0.44013837025514146
+          weight: 0.4184824777141025
+
+      - model: models/backbones/sst2
+        layer_range: [2, 3]
+        parameters:
+          density: 0.16565191103634322
+          weight: 1.0
+
+  - sources:
+      - model: models/backbones/base
+        layer_range: [3, 7]
+        parameters:
+          weight: 1.00
+
+  - sources:
+      - model: models/backbones/base
+        layer_range: [7, 11]
+        parameters:
+          weight: 0.00
+      - model: models/backbones/mnli
+        layer_range: [7, 11]
+        parameters:
+          density: 0.39556870212867484
+          weight: 0.7078950973056382
+
+      - model: models/backbones/ag-news
+        layer_range: [7, 11]
+        parameters:
+          density: 0.42620342980524234
+          weight: 0.30204062527397835
+
+      - model: models/backbones/sst2
+        layer_range: [7, 11]
+        parameters:
+          density: 0.21618411315575772
+          weight: 1.0
+  - sources:
+      - model: models/backbones/base
+        layer_range: [11, 12]
+        parameters:
+          weight: 1.00
+copy_tokenizer: true

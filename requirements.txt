@@ -5,4 +5,4 @@ tqdm
 pyyaml
 mergekit
 accelerate
-huggingface_hub
+optuna

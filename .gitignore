@@ -1,0 +1,42 @@
+
+# Ignore experiments folder
+experiments/
+
+# Ignore model weights
+*.safetensors
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore experiments folder
+experiments/
+
+# Ignore model weights
+*.safetensors
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore experiments folder
+experiments/
+
+# Ignore model weights
+*.safetensors
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore system files
+.DS_Store
+Thumbs.db

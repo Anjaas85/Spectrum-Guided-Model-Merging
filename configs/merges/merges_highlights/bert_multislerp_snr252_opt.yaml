@@ -1,0 +1,31 @@
+merge_method: passthrough
+base_model: models/backbones/base
+dtype: float32
+
+parameters:
+  normalize_weights: true
+
+slices:
+  - sources:
+      - model: models/backbones/base
+        layer_range: [0, 8]
+        parameters:
+          weight: 1.0
+  - sources:
+      - model: experiments/merges/bert_multislerp_snr25_opt_mid
+        layer_range: [0, 3]
+        parameters:
+          weight: 1.0
+  - sources:
+      - model: models/backbones/base
+        layer_range: [11, 12]
+        parameters:
+          weight: 1.0
+
+
+
+
+
+
+          
+copy_tokenizer: true

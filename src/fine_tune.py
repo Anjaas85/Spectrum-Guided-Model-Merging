@@ -1,49 +1,47 @@
 import os
 import yaml
+import json
 import torch
 import torch.nn as nn
 import numpy as np
 from collections import deque
 from torch.utils.data import DataLoader, RandomSampler
-from transformers import AutoTokenizer, AdamW, get_linear_schedule_with_warmup
+from torch.optim import AdamW
+from transformers import AutoTokenizer, get_linear_schedule_with_warmup, AutoModel
 from tqdm import tqdm
 import copy
 
 from src.data_loader import load_train_val_split
-from src.test_modelv2 import evaluate_model # or testmodel v1??
+from src.test_modelv2 import evaluate_model as eval_model # or testmodel v1??
+from src.test_model import evaluate_model as eval_and_save
 
-def get_active_layers_from_yaml(yaml_path):
+SNR25_LAYERS = [8, 9, 10]
+SNR50_LAYERS = [0, 2, 7, 8, 9, 10]
+ 
+def get_baseline_performance(task_name):
     """
-    Parses a mergekit YAML file to find which layers were involved in the merge.
-    Assumes mergekit syntax where 'layer_range' is [start, end) (exclusive).
-    Returns a set of integer layer indices.
+    Loads the baseline performance (Accuracy or F1/MCC) of the original models.
+    Adjust paths if your directory structure differs.
     """
-    if not os.path.exists(yaml_path):
-        raise FileNotFoundError(f"Merge config not found at: {yaml_path}")
-        
-    print(f"Parsing merge config: {yaml_path}")
-    with open(yaml_path, 'r') as f:
-        config = yaml.safe_load(f)
-        
-    active_layers = set()
+    task_map = {
+        "sst2": "sst2/sst2_sst2.json",
+        "ag-news": "ag-news/ag-news_ag-news.json",
+        "mnli": "mnli/mnli_mnli.json"
+    }
     
-    if 'slices' in config:
-        for sl in config['slices']:
-            if 'sources' in sl:
-                for source in sl['sources']:
-                    if 'layer_range' in source:
-                        start, end = source['layer_range']
-                        for i in range(start, end):
-                            active_layers.add(i)
-
-    if not active_layers and 'slices' not in config:
-        print("Warning: No 'slices' found in YAML. Assuming all layers active.")
-        return set(range(12)) #bert backbone layers???
+    base_path = "./experiments/results"
+    full_path = os.path.join(base_path, task_map[task_name])
+    
+    if not os.path.exists(full_path):
+        print(f"Warning: Baseline for {task_name} not found at {full_path}. Assuming 1.0 (no scaling).")
+        return 0.90 # Fallback placeholder
         
-    print(f"Identified Spectrum-Selected Active Layers: {sorted(list(active_layers))}")
-    return active_layers
+    with open(full_path, 'r') as f:
+        data = json.load(f)
+        # Prefer Accuracy, fallback to macro avg f1 if needed
+        return data["metrics"]["accuracy"]
 
-def configure_model_freezing(model, active_layer_indices):
+def apply_spectrum_freezing(model, active_layer_indices):
     """
     Freeze entire model except classification heads, layers selected with Spectrum (found in config), LayerNorm params, pooling
     """
@@ -51,7 +49,7 @@ def configure_model_freezing(model, active_layer_indices):
         param.requires_grad = False
         
     for name, param in model.named_parameters():
-        if "heads" in name or "classifier" in name:
+        if "heads" in name:
             param.requires_grad = True
         elif "LayerNorm" in name:
             param.requires_grad = True
@@ -72,61 +70,6 @@ def configure_model_freezing(model, active_layer_indices):
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
     print(f"Model Configured: {trainable/1e6:.2f}M trainable params / {total/1e6:.2f}M total")
-
-# LiNeS / LLRD (high lr at top, low at bottom)
-def get_lines_optimizer_params(model, head_lr, decay_rate=0.9):
-    """
-    Implements LiNeS (Layer-wise Learning Rate Decay).
-    Layer 11 (Top) gets head_lr. Layer 0 (Bottom) gets head_lr * decay^11.
-    """
-    optimizer_grouped_parameters = []
-    head_params = []
-    backbone_layer_params = {} # layer_idx -> list
-    #embeddings_params = []
-    other_params = []
-
-    for name, param in model.named_parameters():
-        if not param.requires_grad:
-            continue
-            
-        if "heads" in name:
-            head_params.append(param)
-        elif "encoder.layer." in name:
-            try:
-                parts = name.split("encoder.layer.")
-                layer_idx = int(parts[1].split(".")[0])
-                if layer_idx not in backbone_layer_params:
-                    backbone_layer_params[layer_idx] = []
-                backbone_layer_params[layer_idx].append(param)
-            except:
-                other_params.append(param)
-        #elif "embeddings" in name:
-        #    embeddings_params.append(param)
-        else:
-            other_params.append(param)
-
-    if head_params:
-        optimizer_grouped_parameters.append({"params": head_params, "lr": head_lr})
-    
-    num_layers = 12 #bert backbone
-    for layer_i in range(num_layers):
-      # layer_i=11 -> decay_power=0 -> lr=head_lr
-      # layer_i=0  -> decay_power=11 -> lr=head_lr * decay^11
-      decay_power = (num_layers - 1) - layer_i
-      layer_lr = head_lr * (decay_rate ** decay_power)
-        
-      if layer_i in backbone_layer_params:
-          optimizer_grouped_parameters.append({
-              "params": backbone_layer_params[layer_i],
-              "lr": layer_lr
-          })
-    if other_params:
-        optimizer_grouped_parameters.append({
-            "params": other_params,
-            "lr": head_lr * (decay_rate ** num_layers)
-        })
-    
-    return optimizer_grouped_parameters
 
 #dynamic sampler helper
 def get_infinite_batch_iterator(dataloader, task_name, tokenizer, device):
@@ -164,7 +107,7 @@ class DynamicTaskScheduler:
     P(task) ~ (Current_Loss / Reference_Loss) ^ alpha
     Reference Loss = Theoretical random guess loss (ln(num_classes)).
     """
-    def __init__(self, tasks, ref_losses, alpha=2.0, smoothing=0.1):
+    def __init__(self, tasks, ref_losses, alpha=1.0, smoothing=0.1):
         self.tasks = tasks
         self.ref_losses = ref_losses
         self.alpha = alpha 
@@ -180,7 +123,8 @@ class DynamicTaskScheduler:
         scores = []
         for t in self.tasks:
           ratio = self.current_losses[t] / self.ref_losses[t]
-          scores.append(max(ratio, 0.001) ** self.alpha) # add small epsilon to avoid 0, although unlikely with EMA
+          #scores.append(max(ratio, 0.001) ** self.alpha) # add small epsilon to avoid 0, although unlikely with EMA
+          scores.append(ratio ** self.alpha)
         total_score = sum(scores)
         if total_score == 0:
             probs = [1.0/len(self.tasks)] * len(self.tasks)
@@ -193,31 +137,71 @@ class DynamicTaskScheduler:
 def fine_tune_and_evaluate(
     multitask_model_instance,
     model_name: str,
-    #merge_config_path: str, 
-    #tasks=["sst2", "mnli", "ag-news"],
-    #epochs=3,
-    total_steps = 2000,
-    head_lr=2e-5,
-    decay_rate=0.9,
+    output_run_name: str = None,
+    total_steps = 2000, 
+    base_lr=2e-5,
     batch_size=16,
-    device="cuda"
+    device="cuda",
+    #increase val interval if more than 1 epoch
+    val_check_interval=200, # check ARR every X steps 
+    arr_threshold=0.9, #stop if ARR reaches this
+    patience=4,
+    train_subset_ratio=0.1, #use 10% data
 ):  
-    new_model_name = f"{model_name}_ft"
     print(f"\nStarting post-merge finetuning for {model_name}")
-    
-    tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-uncased")
-    multitask_model_instance.to(device)
-   
-    merge_config_path = f"./experiments/merges/{model_name}/mergekit_config.yml"
-    active_layers = get_active_layers_from_yaml(merge_config_path)
-    configure_model_freezing(multitask_model_instance, active_layers)
 
+    if output_run_name is None:
+        output_run_name = f"{model_name}_ft"
+
+    if "snr25" in model_name:
+        active_layers = SNR25_LAYERS
+    elif "snr50" in model_name:
+        active_layers = SNR50_LAYERS
+    else:
+        print("Warning: model name does not contain 'snr25' or 'snr50'")
+        active_layers = SNR25_LAYERS 
+
+    apply_spectrum_freezing(multitask_model_instance, active_layers)
+    multitask_model_instance.to(device)
+
+    hyperparams = {
+        "original_model": model_name,
+        "run_name": output_run_name,
+        "active_layers": active_layers,
+        "total_steps": total_steps,
+        "base_lr": base_lr,
+        "batch_size": batch_size,
+        "val_check_interval": val_check_interval,
+        "arr_threshold": arr_threshold,
+        "patience": patience,
+        "train_subset_ratio": train_subset_ratio,
+        "optimizer": "AdamW"
+    }
+    results_dir = os.path.join("experiments/results", output_run_name)
+    os.makedirs(results_dir, exist_ok=True)
+    hp_path = os.path.join(results_dir, "hyperparameters.json")
+    with open(hp_path, "w") as f:
+        json.dump(hyperparams, f, indent=4)
+    print(f"Hyperparameters saved to {hp_path}")
+
+    tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-uncased")
     tasks=["sst2", "mnli", "ag-news"]
     # loading 10% data
     train_dataloaders = {}
+    val_datasets = {}
     for task in tasks:
-        train_data, _ = load_train_val_split(task, val_ratio=0.1) 
-        train_dataloaders[task] = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+        #load standard split (90% train, 10% val)
+        train_data, val_data = load_train_val_split(task, val_ratio=0.1) 
+        val_datasets[task] = val_data
+
+        #select 10% of training data
+        num_samples = len(train_data)
+        subset_size = int(num_samples * train_subset_ratio)
+        # Randomly select indices
+        indices = torch.randperm(num_samples)[:subset_size].tolist()
+        train_data_subset = train_data.select(indices)
+
+        train_dataloaders[task] = DataLoader(train_data_subset, batch_size=batch_size, shuffle=True)
     
     task_iterators = {
         t: get_infinite_batch_iterator(train_dataloaders[t], t, tokenizer, device) 
@@ -225,37 +209,85 @@ def fine_tune_and_evaluate(
     }
 
     #setup scheduler
-    # theoretical max entropy = -ln(1/N) = ln(N)
+    # theoretical loss floors = -ln(1/N) = ln(N)
     ref_losses = {
         "sst2": np.log(2),      # 0.69
         "mnli": np.log(3),      # 1.10
         "ag-news": np.log(4)    # 1.39
     }
 
-    current_refs = {t: ref_losses.get(t, 1.0) for t in tasks}
+    #current_refs = {t: ref_losses.get(t, 1.0) for t in tasks}
 
-    scheduler_sampler = DynamicTaskScheduler(tasks, current_refs, alpha=2.0)
+    scheduler_sampler = DynamicTaskScheduler(tasks, ref_losses, alpha=1.0)
 
-    grouped_params = get_lines_optimizer_params(multitask_model_instance, head_lr, decay_rate)
-    optimizer = AdamW(grouped_params)
-    
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer, 
-        num_warmup_steps=int(0.1*total_steps), #num_warmup_steps=int(0.1 * total_steps_per_epoch * epochs)
-        num_training_steps=total_steps #num_training_steps=total_steps_per_epoch * epochs
-    )
+    params_to_train = []
+    for p in multitask_model_instance.parameters():
+        if p.requires_grad:
+            params_to_train.append(p)
+    optimizer = AdamW(params_to_train, lr=base_lr)
 
+    #load baselines for ARR
+    baselines = {t: get_baseline_performance(t) for t in tasks}
+
+    save_path_root = "./models/finetuned_models"
+    save_path_ckpt = os.path.join(save_path_root, output_run_name)
+
+    #training loop
     print(f"Starting training for {total_steps} steps...")
+
+    best_arr = 0.0
+    patience_counter = 0
+    start_step = 0
+    
+    #restart from checkpoint
+    state_path = os.path.join(save_path_ckpt, "training_state.json")
+    opt_path = os.path.join(save_path_ckpt, "optimizer.pt")
+
+    if os.path.exists(state_path):
+        print(f"found checkpoint at {state_path}, resuming...")
+        try:
+            with open(state_path, "r") as f:
+                state = json.load(f)
+                start_step = state["step"]
+                best_arr = state["best_arr"]
+                patience_counter = state.get("patience_counter", 0)
+      
+            # Load weights
+            multitask_model_instance.encoder = AutoModel.from_pretrained(save_path_ckpt)
+            heads_dir = os.path.join(save_path_ckpt, "heads")
+            for task_name, head_module in multitask_model_instance.heads.items():
+                head_path = os.path.join(heads_dir, f"{task_name}_head.pt")
+                if os.path.exists(head_path):
+                    head_module.load_state_dict(torch.load(head_path))
+            
+            if os.path.exists(opt_path):
+                optimizer.load_state_dict(torch.load(opt_path))
+                
+            multitask_model_instance.to(device)
+            print(f"Resumed from step {start_step} with Best ARR {best_arr:.4f}")
+
+        except Exception as e:
+            print(f"Failed to resume: {e}. Starting from scratch.")
+            start_step = 0
+            best_arr = 0.0   
+            patience_counter = 0   
+    
     multitask_model_instance.train()
-    progress_bar = tqdm(range(total_steps))
+
+    progress_bar = tqdm(range(start_step, total_steps))
     for step in progress_bar:
-        # A. Sample Task
+        # sample Task
         current_task = scheduler_sampler.sample_task()
         
-        # B. Get Batch
+        # get batch
         inputs, labels = next(task_iterators[current_task])
-        
-        # C. Forward & Backward
+
+        # remap labels: glue (0=ent, 1=neu, 2=con), textattack (0=con, 1=ent, 2=neu) 
+        #map 0->2, 1->2, 2->0
+        if current_task == "mnli":
+            labels = torch.tensor([(l.item() + 1) % 3 for l in labels], device=device)
+                
+        # fw and bw
         optimizer.zero_grad()
         logits = multitask_model_instance(
             input_ids=inputs['input_ids'],
@@ -269,8 +301,67 @@ def fine_tune_and_evaluate(
         torch.nn.utils.clip_grad_norm_(multitask_model_instance.parameters(), 1.0)
         
         optimizer.step()
-        scheduler.step()
         scheduler_sampler.update(current_task, loss.item())
+
+        #validation and early stopping
+        if (step + 1) % val_check_interval == 0:
+            print(f"\n[Step {step+1}] Running Intermediate Validation...")
+            
+            # Note: evaluate_model uses the official test/val sets. 
+            # This might be slow. If too slow, consider evaluating on a subset.
+            current_metrics = {}
+            for t in tasks: 
+                # Suppress print inside loop to keep clean
+                # this should be done on val split, this function is doing on test split
+                res = eval_model(
+                    multitask_model_instance, 
+                    output_run_name, 
+                    t, 
+                    device=device,
+                    dataset=val_datasets[t]
+                )
+                current_metrics[t] = res["metrics"]["accuracy"]
+                
+            # calculate ARR
+            ratios = [current_metrics[t] / baselines[t] for t in tasks]
+            arr = sum(ratios) / len(ratios)
+            
+            print(f"ARR: {arr:.4f} | Ratios: SST2={ratios[0]:.2f}, MNLI={ratios[1]:.2f}, AG={ratios[2]:.2f}")
+            
+            # save if best
+            if arr > best_arr+0.01:
+                best_arr = arr
+                patience_counter = 0
+                os.makedirs(save_path_ckpt, exist_ok=True)
+                # save backbone
+                multitask_model_instance.encoder.save_pretrained(save_path_ckpt)
+                tokenizer.save_pretrained(save_path_ckpt)
+                # save heads!!
+                heads_dir = os.path.join(save_path_ckpt, "heads")
+                os.makedirs(heads_dir, exist_ok=True)
+                for task_name, head_module in multitask_model_instance.heads.items():
+                    torch.save(head_module.state_dict(), os.path.join(heads_dir, f"{task_name}_head.pt"))
+                
+                torch.save(optimizer.state_dict(), opt_path)
+                # save state
+                with open(state_path, "w") as f:
+                    json.dump({
+                        "step": step + 1, 
+                        "best_arr": best_arr,
+                        "patience_counter": patience_counter
+                    }, f)
+            else:
+                patience_counter += 1
+            # early stopping
+            if arr >= arr_threshold:
+                print(f"Early stopping triggered: ARR {arr:.4f} >= {arr_threshold}")
+                break
+            if patience_counter >= patience:
+                print(f"Early stopping triggered: ARR plateaued for {patience_counter} checks.")
+                break
+                
+            multitask_model_instance.train() # Switch back to train mode
+
 
         '''
         mnli_ratio = scheduler_sampler.current_losses['mnli'] / ref_losses['mnli']
@@ -280,23 +371,26 @@ def fine_tune_and_evaluate(
             "MNLI_Ratio": f"{mnli_ratio:.2f}" 
         })
         '''
-    #save finetuned model
-    save_path = f"experiments/merges/{new_model_name}" #do we want it here or in models/finetuned??
-    os.makedirs(save_path, exist_ok=True)
-    multitask_model_instance.encoder.save_pretrained(save_path)
-    tokenizer.save_pretrained(save_path)
-    #save finetuned heads!!!
-    os.makedirs(os.path.join(save_path, "heads"), exist_ok=True)
-    for task_name, head_module in multitask_model_instance.heads.items():
-      torch.save(head_module.state_dict(), os.path.join(save_path, "heads", f"{task_name}_head.pt"))
-    print(f"Fine-tuned model saved")
+
+    print(f"Fine-tuned model saved to {save_path_ckpt}")
     
     #final evaluation
-    print(f"Running final evaluation ...")
+    print(f"Running final evaluation on best checkpoint...")
+    #reload model
+    multitask_model_instance.encoder = AutoModel.from_pretrained(save_path_ckpt)
+    heads_dir = os.path.join(save_path_ckpt, "heads")
+    for task_name, head_module in multitask_model_instance.heads.items():
+        head_path = os.path.join(heads_dir, f"{task_name}_head.pt")
+        if os.path.exists(head_path):
+            head_module.load_state_dict(torch.load(head_path))
+
+    multitask_model_instance.to(device)
+    multitask_model_instance.eval()
+    
     results = {}
     for task in tasks:
-        res = evaluate_model(multitask_model_instance, new_model_name, task, device=device)
+        res = eval_and_save(multitask_model_instance, output_run_name, task, device=device) #is it correct to pass model name like that or save_path_ckpt needed?
         results[task] = res["metrics"]["accuracy"]
         
-    print(f"Post-fine-tuning results: {results}")
+    print(f"Post-fine-tuning results (ARR={best_arr:.4f}): {results}")
     return results

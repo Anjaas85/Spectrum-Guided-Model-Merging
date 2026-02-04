@@ -20,7 +20,8 @@ from src.data_loader import load_test_dataset
 
 def optimize_multislerp_weights(
     template_config_path, 
-    output_dir="./experiments/optuna_multislerp",
+    template_config_path2,
+    output_dir="./experiments/optuna_multislerp_snr25",
     study_name = "multislerp",
     n_trials=20,
     device="cuda"
@@ -28,6 +29,8 @@ def optimize_multislerp_weights(
 
     with open(template_config_path, 'r') as f:
         template_config = yaml.safe_load(f)
+    with open(template_config_path2, 'r') as f2:
+        template_config2 = yaml.safe_load(f2)
 
     datasets = {}
     tasks = ["sst2", "ag-news", "mnli"]
@@ -39,10 +42,23 @@ def optimize_multislerp_weights(
             datasets[task] = None 
 
     os.makedirs(output_dir, exist_ok=True)
+
+
     storage_url = f"sqlite:///{os.path.join(output_dir, 'optuna.db')}"
     save_dir = "./experiments/results/optuna_multislerp_snr25"
 
     def objective(trial):
+
+
+        #needed for multislerp
+        trial_id = trial.number
+
+        trial_dir = os.path.join(output_dir, f"trial_{trial_id}")
+        mid_dir   = os.path.join(trial_dir, "mid")
+        final_dir = os.path.join(trial_dir, "final")
+
+        os.makedirs(mid_dir, exist_ok=True)
+        os.makedirs(final_dir, exist_ok=True)
         # suggest parameters
         w_sst2 = 1.0 
         #w_agnews_low = trial.suggest_float("w_agnews_low", 0.8, 2.5)
@@ -51,9 +67,9 @@ def optimize_multislerp_weights(
         w_mnli_high = trial.suggest_float("w_mnli_high", 1.5, 5.0)
 
         # config to update
-        current_config = copy.deepcopy(template_config)
+        current_config1 = copy.deepcopy(template_config)
         
-        for i, slice_config in enumerate(current_config['slices']):
+        for i, slice_config in enumerate(current_config1['slices']):
             
             sources = slice_config['sources']
             
@@ -69,25 +85,31 @@ def optimize_multislerp_weights(
                     source['parameters']['weight'] = w_agnews_high  
                 elif "mnli" in model_path:
                     source['parameters']['weight'] =  w_mnli_high
-
- 
-
-        trial_id = trial.number
-        temp_merge_path = os.path.join(output_dir, f"trial_{trial_id}") 
         
         try:
             # merge
-            config = MergeConfiguration.model_validate(current_config)
+            config = MergeConfiguration.model_validate(current_config1)
             options = MergeOptions(
                 cuda=(device == "cuda"),
                 copy_tokenizer=True,
                 allow_crimes=True,
                 quiet=True 
             )
-            run_merge(config, temp_merge_path, options=options)
+            run_merge(config, mid_dir, options=options)
             
+            current_config2 = copy.deepcopy(template_config2)
+
+            for sources in current_config2["slices"]:
+                for src in sources["sources"]:
+                    if src["model"] == "intermediate":
+                        src["model"] = mid_dir
+
+            config2 = MergeConfiguration.model_validate(current_config2)
+            run_merge(config2, final_dir, options)
+
+          
             # evaluate
-            multi_model = UnifiedMultiTaskModel(temp_merge_path)
+            multi_model = UnifiedMultiTaskModel(final_dir)
             
             multi_model.add_task_head("sst2", "textattack/bert-base-uncased-SST-2")
             multi_model.add_task_head("ag-news", "textattack/bert-base-uncased-ag-news")
@@ -119,11 +141,11 @@ def optimize_multislerp_weights(
             return score
 
         except Exception as e:
-            print(f"[Trial {trial_id}] Failed: {e}")
+            print(f"[Trial {trial_id}] Failed: {e} - outter merge")
             return 0.0
         finally:
-            if os.path.exists(temp_merge_path):
-                shutil.rmtree(temp_merge_path)
+            if os.path.exists(trial_dir):
+                shutil.rmtree(trial_dir)
 
     study = optuna.create_study(
         direction="maximize",

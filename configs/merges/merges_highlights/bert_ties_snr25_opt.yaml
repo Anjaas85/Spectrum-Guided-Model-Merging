@@ -1,0 +1,51 @@
+merge_method: ties
+base_model: models/backbones/base
+dtype: float32
+parameters:
+  normalize: true
+  int8_mask: false
+  rescale: true
+slices:
+- sources:
+  - model: models/backbones/base
+    layer_range:
+    - 0
+    - 8
+    parameters:
+      weight: 1.0
+- sources:
+  - model: models/backbones/base
+    layer_range:
+    - 8
+    - 11
+    parameters:
+      weight: 0.0
+  - model: models/backbones/mnli
+    layer_range:
+    - 8
+    - 11
+    parameters:
+      density: 0.3500374033382727
+      weight: 0.8723500153865001
+  - model: models/backbones/ag-news
+    layer_range:
+    - 8
+    - 11
+    parameters:
+      density: 0.4481070250853179
+      weight: 0.31903353437384174
+  - model: models/backbones/sst2
+    layer_range:
+    - 8
+    - 11
+    parameters:
+      density: 0.16932175065380356
+      weight: 1.0
+- sources:
+  - model: models/backbones/base
+    layer_range:
+    - 11
+    - 12
+    parameters:
+      weight: 1.0
+copy_tokenizer: true
