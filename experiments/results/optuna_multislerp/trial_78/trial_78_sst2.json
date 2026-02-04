@@ -1,0 +1,38 @@
+{
+  "model": "trial_78",
+  "dataset": "sst2",
+  "timestamp": "2026-01-30 01:42:46",
+  "overall_accuracy": 0.7488532110091743,
+  "metrics": {
+    "accuracy": 0.7488532110091743,
+    "f1_macro": 0.7309396569821587,
+    "precision_macro": 0.8247253630941143,
+    "recall_macro": 0.7443693693693694,
+    "confusion_matrix": [
+      [
+        214,
+        214
+      ],
+      [
+        5,
+        439
+      ]
+    ]
+  },
+  "per_class_stats": {
+    "0": {
+      "accuracy": 0.5,
+      "precision": 0.9771689497716894,
+      "recall": 0.5,
+      "f1": 0.6615146831530139,
+      "mean_confidence": 0.6319959688948714
+    },
+    "1": {
+      "accuracy": 0.9887387387387387,
+      "precision": 0.6722817764165391,
+      "recall": 0.9887387387387387,
+      "f1": 0.8003646308113036,
+      "mean_confidence": 0.7608595789848024
+    }
+  }
+}

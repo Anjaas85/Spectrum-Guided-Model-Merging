@@ -1,0 +1,55 @@
+TIES
+
+FULL MODEL
+
+
+Results for trial_52 on sst2:
+Accuracy: 0.8028     F1: 0.7953
+Results for trial_52 on ag-news:
+Accuracy: 0.9154     F1: 0.9152
+Results for trial_52 on mnli:
+Accuracy: 0.7219     F1: 0.7203
+Trial 52 finished with value: 2.4400013350558485 and parameters: {'w_agnews_low': 0.35878078849290773, 'w_mnli_low': 0.8905475177850051, 'd_sst2_low': 0.2527936269422349, 'd_agnews_low': 0.4382541342424171, 'd_mnli_low': 0.43928173793618425, 'w_agnews_high': 0.33607373770748716, 'w_mnli_high': 0.6620831568541315, 'd_sst2_high': 0.25937593712516227, 'd_agnews_high': 0.4489409374675917, 'd_mnli_high': 0.4191804793946353}. Best is trial 36 with value: 2.442265270001055.
+
+
+
+
+SNR50
+
+2026-02-01 07:03] Model: trial_64 | Dataset: sst2 | Acc: 0.8578 | F1-Macro: 0.8551
+[2026-02-01 07:03] Model: trial_64 | Dataset: ag-news | Acc: 0.8986 | F1-Macro: 0.8990
+[2026-02-01 07:03] Model: trial_64 | Dataset: mnli | Acc: 0.6657 | F1-Macro: 0.6677
+
+SNR25
+
+[2026-02-01 10:08] Model: trial_85 | Dataset: sst2 | Acc: 0.8096 | F1-Macro: 0.8030
+[2026-02-01 10:08] Model: trial_85 | Dataset: ag-news | Acc: 0.8658 | F1-Macro: 0.8665
+[2026-02-01 10:08] Model: trial_85 | Dataset: mnli | Acc: 0.5879 | F1-Macro: 0.5800
+
+
+
+
+MULTISLERP
+
+FULL MODEL
+
+[2026-01-30 01:11] Model: trial_68 | Dataset: sst2 | Acc: 0.7557 | F1-Macro: 0.7390
+[2026-01-30 01:11] Model: trial_68 | Dataset: ag-news | Acc: 0.8237 | F1-Macro: 0.8241
+[2026-01-30 01:11] Model: trial_68 | Dataset: mnli | Acc: 0.7173 | F1-Macro: 0.7115
+  Params: {'w_agnews_low': 0.8525977461328307, 'w_mnli_low': 2.7273319300251466, 'w_agnews_high': 1.091985910060366, 'w_mnli_high': 2.7316676263783775}
+
+SNR 50
+
+[2026-02-03 01:25] Model: trial_48 | Dataset: sst2 | Acc: 0.6009 | F1-Macro: 0.5189
+[2026-02-03 01:25] Model: trial_48 | Dataset: ag-news | Acc: 0.7267 | F1-Macro: 0.7275
+[2026-02-03 01:25] Model: trial_48 | Dataset: mnli | Acc: 0.4020 | F1-Macro: 0.3280
+
+
+
+SNR25
+
+
+[2026-02-02 23:10] Model: trial_33 | Dataset: sst2 | Acc: 0.6846 | F1-Macro: 0.6515
+[2026-02-02 23:10] Model: trial_33 | Dataset: ag-news | Acc: 0.8647 | F1-Macro: 0.8659
+[2026-02-02 23:10] Model: trial_33 | Dataset: mnli | Acc: 0.3224 | F1-Macro: 0.1812
+
