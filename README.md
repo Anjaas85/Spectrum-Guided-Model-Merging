@@ -17,4 +17,4 @@ You can find all the information on how to run our code in SpectrumGUidedModelMe
 └── src/                     # Source code implementation
 ```
 
-When it comes to calculaiton of SNR significant layers it can be found in Jupyter nootbook.
+When it comes to calculaiton of SNR significant layers it can be found in Compute_Layer_SNR_with_Spectrum.ipynb.
