@@ -6,3 +6,9 @@ pyyaml
 mergekit
 accelerate
 optuna
+textattack
+bitsandbytes
+scipy
+pandas
+matplotlib
+numpy
